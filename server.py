@@ -83,7 +83,7 @@ def pose_thread():
                 mouth_corner_up = max(0, min(mouth_corner_up, 0.02))
                 #print(f"mouth_corner_up: {mouth_corner_up}", end="")
                 # スコア計算（顔の近さバイアスなし）両値とも0.3,0.7に近づける
-                smile_score = (mouth_open * 10 + mouth_corner_up * 35) * 100
+                smile_score = (mouth_open * 15 + mouth_corner_up * 50) * 100
                 smile_score = max(0, min(smile_score, 100))
                 # 怒り度判定は廃止
                 return smile_score, None
