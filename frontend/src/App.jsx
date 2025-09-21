@@ -38,7 +38,6 @@ function App() {
             <div>左肘角度: {formatAngle(angles.left_elbow)}度</div>
             <div>左肩角度: {formatAngle(angles.left_shoulder)}度</div>
             <div>笑顔度: {formatAngle(angles.smile_score)}</div>
-            <div>怒り度: {formatAngle(angles.anger_score)}</div>
           </>
         )}
       </div>

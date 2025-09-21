@@ -50,8 +50,8 @@ def pose_thread():
             # 使用するランドマーク
             LEFT_BROW_END = 46
             RIGHT_BROW_END = 276
-            LEFT_BROW_START = 107  # 眉頭は上側
-            RIGHT_BROW_START = 336
+            LEFT_BROW_START = 75  # 眉頭をより内側（顔中心寄り）
+            RIGHT_BROW_START = 295
             UPPER_LIP_CENTER = 13
             LOWER_LIP_CENTER = 14
             LEFT_MOUTH = 61
@@ -85,21 +85,16 @@ def pose_thread():
                 # スコア計算（顔の近さバイアスなし）両値とも0.3,0.7に近づける
                 smile_score = (mouth_open * 10 + mouth_corner_up * 35) * 100
                 smile_score = max(0, min(smile_score, 100))
-                # 怒り度: 眉尻-眉頭の距離（両側）を平均し、値が小さいほど怒り顔
-                left_brow_dist = abs(left_brow_end.x - left_brow_start.x)
-                right_brow_dist = abs(right_brow_end.x - right_brow_start.x)
-                brow_dist_avg = (left_brow_dist + right_brow_dist) / 2
-                anger_score = (1 - brow_dist_avg) * 100
-                return smile_score, anger_score
+                # 怒り度判定は廃止
+                return smile_score, None
             except Exception:
                 return None, None
-        smile_score, anger_score = None, None
+        smile_score, _ = None, None
         if face_results.multi_face_landmarks:
-            smile_score, anger_score = get_smile_anger_score(face_results.multi_face_landmarks[0])
+            smile_score, _ = get_smile_anger_score(face_results.multi_face_landmarks[0])
         with angle_data_lock:
             angle_data['smile_score'] = smile_score
-            angle_data['anger_score'] = anger_score
-            print(f"smile_score: {smile_score}, anger_score: {anger_score}")
+            #print(f"smile_score: {smile_score}")
         # カメラ映像を別ウィンドウで表示
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
@@ -283,8 +278,14 @@ def summary():
     #左右差の割合
     angleresult = ((angleresult)+((angle_data['left_shoulder']-angle_data['right_shoulder'])**2/(80**2)*100)+((angle_data['left_elbow']-angle_data['right_elbow'])**2/(80**2)*100))
     angleresult = min(angleresult, 99.99)
-    #すべての要素の平均値を計算
-    probability = (angleresult + 0)/1
+    #すべての要素の平均値を計算（肩・肘・笑顔度）
+    with angle_data_lock:
+        smile_score = angle_data.get('smile_score')
+    values = [angleresult]
+    if smile_score is not None:
+        smile_inverse = 100 - smile_score
+        values.append(smile_inverse)
+    probability = sum(values) / len(values)
     return jsonify({'explosion_probability': probability})
 
 if __name__ == '__main__':
