@@ -71,16 +71,20 @@ def pose_thread():
                 lower_lip = face_landmarks.landmark[LOWER_LIP_CENTER]
                 left_mouth = face_landmarks.landmark[LEFT_MOUTH]
                 right_mouth = face_landmarks.landmark[RIGHT_MOUTH]
-                # 口の開き　0.03が最大
+                # 口の開き　0～0.03
                 mouth_open = abs(upper_lip.y - lower_lip.y)
-                mouth_open = min(mouth_open, 0.03)
-                mouth_open = max(mouth_open, 0)
-                # 口端の高さ（口端が口中心より上なら＋）
-                left_mouth_height = upper_lip.y - left_mouth.y
-                right_mouth_height = upper_lip.y - right_mouth.y
-                mouth_corner_up = max(left_mouth_height, right_mouth_height)
-                # スコア計算（顔の近さバイアスなし）
-                smile_score = (mouth_open * 100 + mouth_corner_up * 100)
+                mouth_open = max(0, min(mouth_open, 0.03))
+                #print(f"mouth_open: {mouth_open}", end="")
+
+                # 口端の高さ（口端が口中心より上なら＋）0～0.02
+                left_mouth_height = (upper_lip.y + lower_lip.y) / 2 - left_mouth.y
+                right_mouth_height = (upper_lip.y + lower_lip.y) / 2 - right_mouth.y
+                mouth_corner_up = (left_mouth_height + right_mouth_height) / 2
+                mouth_corner_up = max(0, min(mouth_corner_up, 0.02))
+                #print(f"mouth_corner_up: {mouth_corner_up}", end="")
+                # スコア計算（顔の近さバイアスなし）両値とも0.3,0.7に近づける
+                smile_score = (mouth_open * 10 + mouth_corner_up * 35) * 100
+                smile_score = max(0, min(smile_score, 100))
                 # 怒り度: 眉尻-眉頭の距離（両側）を平均し、値が小さいほど怒り顔
                 left_brow_dist = abs(left_brow_end.x - left_brow_start.x)
                 right_brow_dist = abs(right_brow_end.x - right_brow_start.x)
