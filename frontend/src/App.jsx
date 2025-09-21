@@ -26,7 +26,7 @@ function App() {
 
   return (
     <div style={{height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center'}}>
-      <h1 style={{fontSize: '3rem', marginTop: '15vh'}}>爆発確率</h1>
+      <h1 style={{fontSize: '3rem', marginTop: '15vh'}}>確率</h1>
       <div style={{fontSize: '2rem', margin: '2rem'}}>
         {summary ? `${summary.explosion_probability.toFixed(2)}%` : '---'}
       </div>
@@ -37,6 +37,8 @@ function App() {
             <div>右肩角度: {formatAngle(angles.right_shoulder)}度</div>
             <div>左肘角度: {formatAngle(angles.left_elbow)}度</div>
             <div>左肩角度: {formatAngle(angles.left_shoulder)}度</div>
+            <div>笑顔度: {formatAngle(angles.smile_score)}</div>
+            <div>怒り度: {formatAngle(angles.anger_score)}</div>
           </>
         )}
       </div>
