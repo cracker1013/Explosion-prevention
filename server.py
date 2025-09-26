@@ -5,6 +5,8 @@ import mediapipe as mp
 import numpy as np
 import threading
 import random
+import serial
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -17,10 +19,47 @@ angle_data = {
     'left_shoulder': None,
     'shoulder_diff': None,
     'shoulder_warning': False,
-    'elbow_warning': False
+    'elbow_warning': False,
+    'accel': None
 }
 
 angle_data_lock = threading.Lock()
+# MPU加速度専用スレッド
+def read_mpu_thread():
+    global mpu_data
+    import time
+    while True:
+        if ser.in_waiting > 0:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            #print("MPU受信:", line)  # デバッグ用
+            try:
+                mpu_data = json.loads(line)
+            except:
+                continue
+            with angle_data_lock:
+                if all(k in mpu_data for k in ['ax', 'ay', 'az']):
+                    try:
+                        a = (mpu_data['ax']**2 + mpu_data['ay']**2 + mpu_data['az']**2) ** 0.5
+                        angle_data['accel'] = round(a, 2)
+                    except Exception:
+                        angle_data['accel'] = None
+                else:
+                    angle_data['accel'] = None
+        time.sleep(0.1)
+
+# Arduino のシリアルポートを指定
+ser = serial.Serial('COM3', 115200, timeout=1)
+mpu_data = {}
+
+def read_mpu():
+    global mpu_data
+    if ser.in_waiting > 0:
+        line = ser.readline().decode('utf-8', errors='ignore').strip()
+        print("MPU受信:", line)  # デバッグ用
+        try:
+            mpu_data = json.loads(line)
+        except:
+            pass
 
 def calculate_angle(a, b, c):
     a = np.array(a)
@@ -45,6 +84,7 @@ def pose_thread():
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(rgb_frame)
         face_results = face_mesh.process(rgb_frame)
+        # ...MPU値取得は専用スレッドで実施...
         # 表情スコア計算
         def get_smile_anger_score(face_landmarks):
             # 使用するランドマーク
@@ -289,6 +329,8 @@ def summary():
     return jsonify({'explosion_probability': probability})
 
 if __name__ == '__main__':
-    t = threading.Thread(target=pose_thread, daemon=True)
-    t.start()
+    t_pose = threading.Thread(target=pose_thread, daemon=True)
+    t_pose.start()
+    t_mpu = threading.Thread(target=read_mpu_thread, daemon=True)
+    t_mpu.start()
     app.run(host='0.0.0.0', port=5000, debug=False)
