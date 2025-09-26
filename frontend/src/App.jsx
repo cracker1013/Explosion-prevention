@@ -30,9 +30,9 @@ function App() {
     const advices = [];
 
     // 爆発確率
-    if (summary.explosion_probability < 30) {
-      advices.push('世界滅亡の危機です。アドバイス');
-    } else if (summary.explosion_probability >= 50) {
+    if (summary.explosion_probability >= 90) {
+      advices.push('世界の危機。落ち着いてください。');
+    } else if (summary.explosion_probability < 50 && summary.explosion_probability >= 15) {
       advices.push('注意：肩や肘の角度、笑顔度を意識しましょう。');
     } else {
       advices.push('安全です。今の状態をキープしましょう。');
@@ -47,12 +47,18 @@ function App() {
     else if (angles.smile_score >= 70) {
       advices.push('明らかな笑顔ですね！世界が安全になりました！');
     }
-    // 肩・肘
-    if (angles.right_shoulder > 80 || angles.left_shoulder > 80) {
-      advices.push('肩の角度が高いです。リラックスしましょう。');
+    // 肩の左右差
+    if (
+      angles.right_shoulder !== null && angles.left_shoulder !== null &&
+      Math.abs(Number(angles.right_shoulder) - Number(angles.left_shoulder)) > 20
+    ) {
+      advices.push('肩の左右差が大きいです。両肩の高さを揃えるよう意識しましょう。');
     }
-    if (angles.right_elbow > 120 || angles.left_elbow > 120) {
-      advices.push('肘の角度が大きいです。腕を下げてみましょう。');
+    // 肩の上げ具合
+    if (
+      angles.right_shoulder > 80 || angles.left_shoulder > 80
+    ) {
+      advices.push('肩の角度が高いです。肩を下げてリラックスしましょう。');
     }
     return advices;
   };
@@ -60,37 +66,32 @@ function App() {
   const advices = getAdvice();
 
   return (
-    <div style={{height: '100vh', display: 'flex', flexDirection: 'row', justifyContent: 'center', alignItems: 'center'}}>
-      {/* 中央：確率・値一覧 */}
-      <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: '340px'}}>
-        <h1 style={{fontSize: '3rem', marginBottom: '2vh'}}>確率</h1>
-        <div style={{fontSize: '2rem', margin: '2rem'}}>
-          {summary ? `${summary.explosion_probability.toFixed(2)}%` : '---'}
-        </div>
-  <div style={{fontSize: '1.7rem', marginBottom: '2vh'}}>
-          {angles && (
-            <>
-              <div>右肘角度: {formatAngle(angles.right_elbow)}度</div>
-              <div>右肩角度: {formatAngle(angles.right_shoulder)}度</div>
-              <div>左肘角度: {formatAngle(angles.left_elbow)}度</div>
-              <div>左肩角度: {formatAngle(angles.left_shoulder)}度</div>
-              <div>笑顔度: {formatAngle(angles.smile_score)}</div>
-            </>
-          )}
-        </div>
+    <div style={{height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'}}>
+      <h1 style={{fontSize: '3rem', marginBottom: '2vh'}}>確率</h1>
+      <div style={{fontSize: '2rem', margin: '2rem'}}>
+        {summary ? `${summary.explosion_probability.toFixed(2)}%` : '---'}
       </div>
-      {/* 右側：アドバイス一覧を一つの吹き出しにまとめて表示 */}
-      <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-start', marginLeft: '4vw', minWidth: '320px'}}>
-        {advices && advices.length > 0 && (
-          <div className="advice-balloon">
-            <ul style={{margin: 0, paddingLeft: '1.2em'}}>
-              {advices.map((advice, idx) => (
-                <li key={idx} style={{marginBottom: '0.7em'}}>{advice}</li>
-              ))}
-            </ul>
-          </div>
+      <div style={{fontSize: '1.8rem', marginBottom: '2vh'}}>
+        {angles && (
+          <>
+            <div>右肘角度: {formatAngle(angles.right_elbow)}度</div>
+            <div>右肩角度: {formatAngle(angles.right_shoulder)}度</div>
+            <div>左肘角度: {formatAngle(angles.left_elbow)}度</div>
+            <div>左肩角度: {formatAngle(angles.left_shoulder)}度</div>
+            <div>笑顔度: {formatAngle(angles.smile_score)}</div>
+          </>
         )}
       </div>
+      {/* アドバイス一覧を値項目の下に表示 */}
+      {advices && advices.length > 0 && (
+        <div className="advice-balloon">
+          <ul style={{margin: 0, paddingLeft: '1.2em'}}>
+            {advices.map((advice, idx) => (
+              <li key={idx} style={{marginBottom: '0.7em'}}>{advice}</li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
