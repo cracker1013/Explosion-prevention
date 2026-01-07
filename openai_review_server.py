@@ -1,20 +1,31 @@
 import os
+
 import openai
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+# 環境変数読み込み
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
 
-USE_FAKE_OPENAI = False  # Trueでテスト用総評、FalseでOpenAI API
-client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+# 設定値
+USE_FAKE_OPENAI = os.getenv('USE_FAKE_OPENAI', 'false').lower() == 'true'
+REVIEW_SERVER_PORT = int(os.getenv('REVIEW_SERVER_PORT', '5001'))
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+
+# OpenAIクライアント初期化
+client = openai.OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 @app.route('/review', methods=['POST'])
 def review():
-    # 角度・表情・加速度などをPOSTで受け取る
+    """姿勢・表情データを基にAI総評を生成する"""
     data = request.json
     advices = data.get('advices', [])
     advices_text = '\n'.join(advices) if advices else '（アドバイスなし）'
+    
     prompt = f"""
 You're a versatile advisor.
 Evaluate the data and offer advice in 130 Japanese characters.
@@ -28,10 +39,11 @@ Speak with emotional urgency.If it's safe, say it's safe, but if it's not, get i
 爆発確率: {data.get('explosion_probability')}
 現在のアドバイス一覧:\n{advices_text}
 """
-    # 環境変数USE_FAKE_OPENAIがtrueなら仮アドバイスを返す
-    if USE_FAKE_OPENAI:
+    # フェイクモードまたはAPIキーがない場合
+    if USE_FAKE_OPENAI or client is None:
         advice = "【テスト用総評】爆発確率や加速度、表情・姿勢に注意してください。安全第一で！"
         return jsonify({'review': advice})
+    
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -44,5 +56,14 @@ Speak with emotional urgency.If it's safe, say it's safe, but if it's not, get i
     except Exception as e:
         return jsonify({'review': f'エラー: {str(e)}'}), 500
 
+
+@app.route('/health', methods=['GET'])
+def health():
+    """ヘルスチェック用エンドポイント"""
+    return jsonify({'status': 'ok', 'fake_mode': USE_FAKE_OPENAI})
+
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    print(f"Starting review server on port {REVIEW_SERVER_PORT}")
+    print(f"Fake OpenAI mode: {USE_FAKE_OPENAI}")
+    app.run(host='0.0.0.0', port=REVIEW_SERVER_PORT, debug=True)

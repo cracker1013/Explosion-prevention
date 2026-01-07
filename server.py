@@ -1,15 +1,37 @@
-from flask import Flask, jsonify
-from flask_cors import CORS
+import os
+import json
+import threading
+
 import cv2
 import mediapipe as mp
 import numpy as np
-import threading
-import random
 import serial
-import json
+from flask import Flask, jsonify
+from flask_cors import CORS
+from dotenv import load_dotenv
+
+# 環境変数読み込み
+load_dotenv()
 
 app = Flask(__name__)
 CORS(app)
+
+# 設定値
+SERIAL_PORT = os.getenv('SERIAL_PORT', 'COM3')
+SERIAL_BAUD_RATE = int(os.getenv('SERIAL_BAUD_RATE', '115200'))
+CAMERA_INDEX = int(os.getenv('CAMERA_INDEX', '0'))
+POSE_SERVER_PORT = int(os.getenv('POSE_SERVER_PORT', '5000'))
+SIMULATION_MODE = os.getenv('SIMULATION_MODE', 'false').lower() == 'true'
+
+# シリアルポート初期化（シミュレーションモード時はスキップ）
+ser = None
+mpu_data = {}
+if not SIMULATION_MODE:
+    try:
+        ser = serial.Serial(SERIAL_PORT, SERIAL_BAUD_RATE, timeout=1)
+        print(f"Connected to serial port: {SERIAL_PORT}")
+    except serial.SerialException:
+        print(f"Warning: Could not open serial port {SERIAL_PORT}. MPU data will be unavailable.")
 
 # グローバル変数で最新の角度を保持
 angle_data = {
@@ -24,44 +46,39 @@ angle_data = {
 }
 
 angle_data_lock = threading.Lock()
-# MPU加速度専用スレッド
+
+
 def read_mpu_thread():
+    """MPU加速度センサーからデータを読み取るスレッド"""
     global mpu_data
     import time
     while True:
-        if ser.in_waiting > 0:
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            #print("MPU受信:", line)  # デバッグ用
-            try:
-                mpu_data = json.loads(line)
-            except:
-                continue
-            with angle_data_lock:
-                if all(k in mpu_data for k in ['ax', 'ay', 'az']):
-                    try:
-                        a = (mpu_data['ax']**2 + mpu_data['ay']**2 + mpu_data['az']**2) ** 0.5
-                        angle_data['accel'] = round(a, 2)
-                    except Exception:
+        if ser is None:
+            time.sleep(1)
+            continue
+        try:
+            if ser.in_waiting > 0:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                try:
+                    mpu_data = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                with angle_data_lock:
+                    if all(k in mpu_data for k in ['ax', 'ay', 'az']):
+                        try:
+                            a = (mpu_data['ax']**2 + mpu_data['ay']**2 + mpu_data['az']**2) ** 0.5
+                            angle_data['accel'] = round(a, 2)
+                        except Exception:
+                            angle_data['accel'] = None
+                    else:
                         angle_data['accel'] = None
-                else:
-                    angle_data['accel'] = None
+        except Exception:
+            pass
         time.sleep(0.1)
 
-# Arduino のシリアルポートを指定
-ser = serial.Serial('COM3', 115200, timeout=1)
-mpu_data = {}
-
-def read_mpu():
-    global mpu_data
-    if ser.in_waiting > 0:
-        line = ser.readline().decode('utf-8', errors='ignore').strip()
-        print("MPU受信:", line)  # デバッグ用
-        try:
-            mpu_data = json.loads(line)
-        except:
-            pass
 
 def calculate_angle(a, b, c):
+    """3点から角度を計算する"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
@@ -71,12 +88,61 @@ def calculate_angle(a, b, c):
     angle = np.arccos(cosine_angle)
     return np.degrees(angle)
 
+
 def pose_thread():
-    mp_pose = mp.solutions.pose
-    mp_face_mesh = mp.solutions.face_mesh
-    pose = mp_pose.Pose()
-    face_mesh = mp_face_mesh.FaceMesh()
-    cap = cv2.VideoCapture(0)
+    """姿勢推定・表情解析を行うメインスレッド"""
+    import time
+    import random
+    
+    # シミュレーションモード: ハードウェアなしでランダムデータを生成
+    if SIMULATION_MODE:
+        print("Running in SIMULATION MODE - generating random data")
+        while True:
+            with angle_data_lock:
+                angle_data['right_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['right_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['left_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['left_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['shoulder_diff'] = round((angle_data['right_shoulder'] - angle_data['left_shoulder']) ** 2, 2)
+                angle_data['shoulder_warning'] = angle_data['shoulder_diff'] > 500
+                angle_data['elbow_warning'] = (angle_data['right_shoulder'] > 80 or angle_data['left_shoulder'] > 80)
+                angle_data['smile_score'] = round(random.uniform(30, 90), 2)
+                angle_data['accel'] = round(random.uniform(900, 1100), 2)
+            time.sleep(0.5)
+        return
+    
+    # 通常モード: カメラ + MediaPipe
+    try:
+        mp_pose = mp.solutions.pose
+        mp_face_mesh = mp.solutions.face_mesh
+        pose = mp_pose.Pose()
+        face_mesh = mp_face_mesh.FaceMesh()
+    except AttributeError as e:
+        print(f"MediaPipe initialization error: {e}")
+        print("Falling back to SIMULATION MODE")
+        while True:
+            with angle_data_lock:
+                angle_data['right_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['right_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['left_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['left_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['smile_score'] = round(random.uniform(30, 90), 2)
+            time.sleep(0.5)
+        return
+    
+    cap = cv2.VideoCapture(CAMERA_INDEX)
+    if not cap.isOpened():
+        print(f"Warning: Could not open camera {CAMERA_INDEX}. Falling back to SIMULATION MODE")
+        while True:
+            with angle_data_lock:
+                angle_data['right_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['right_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['left_elbow'] = round(random.uniform(80, 150), 2)
+                angle_data['left_shoulder'] = round(random.uniform(20, 80), 2)
+                angle_data['smile_score'] = round(random.uniform(30, 90), 2)
+            time.sleep(0.5)
+        return
+    
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -329,8 +395,12 @@ def summary():
     return jsonify({'explosion_probability': probability})
 
 if __name__ == '__main__':
+    print(f"Starting pose server on port {POSE_SERVER_PORT}")
+    print(f"Camera index: {CAMERA_INDEX}")
+    print(f"Serial port: {SERIAL_PORT} (baud: {SERIAL_BAUD_RATE})")
+    
     t_pose = threading.Thread(target=pose_thread, daemon=True)
     t_pose.start()
     t_mpu = threading.Thread(target=read_mpu_thread, daemon=True)
     t_mpu.start()
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    app.run(host='0.0.0.0', port=POSE_SERVER_PORT, debug=False)

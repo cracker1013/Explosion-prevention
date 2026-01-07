@@ -1,0 +1,18 @@
+# OpenAIレビューサーバー用Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# 必要な依存関係のみインストール
+RUN pip install --no-cache-dir \
+    flask>=3.0.0 \
+    flask-cors>=4.0.0 \
+    openai>=1.0.0 \
+    python-dotenv>=1.0.0
+
+# アプリケーションコード
+COPY openai_review_server.py .
+
+EXPOSE 5001
+
+CMD ["python", "openai_review_server.py"]
