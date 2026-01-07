@@ -1,0 +1,10 @@
+# Backend dependencies
+flask>=3.0.0
+flask-cors>=4.0.0
+opencv-python-headless>=4.8.0
+mediapipe==0.10.9
+numpy>=1.24.0
+pyserial>=3.5
+openai>=1.0.0
+python-dotenv>=1.0.0
+gunicorn>=21.0.0

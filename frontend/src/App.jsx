@@ -91,9 +91,9 @@ function App() {
     return advices;
   };
 
-  const advices = getAdvice();
+  const advices = getAdvice() || [];
   // 加速度アドバイスを追加
-  if (accelAdvice) {
+  if (accelAdvice && advices) {
     advices.push('落ち着いてください！もう少しゆっくり引きましょう。');
   }
 
@@ -132,7 +132,7 @@ function App() {
     <div style={{height: '100vh', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center'}}>
       <h1 style={{fontSize: '3rem', marginBottom: '0vh'}}>確率</h1>
       <div style={{fontSize: '2.4rem', margin: '1rem'}}>
-        {accelAdvice ? '100.00%' : (summary ? `${summary.explosion_probability.toFixed(2)}%` : '---')}
+        {accelAdvice ? '100.00%' : (summary && summary.explosion_probability != null ? `${Number(summary.explosion_probability).toFixed(2)}%` : '---')}
       </div>
       <div style={{fontSize: '1.8rem', marginBottom: '2vh'}}>
         {angles && (
