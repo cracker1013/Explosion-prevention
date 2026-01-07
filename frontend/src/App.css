@@ -40,3 +40,21 @@
 .read-the-docs {
   color: #888;
 }
+
+/* 堅いボックス型アドバイスバルーン */
+.advice-balloon {
+  background: #fff;
+  border: 2.5px solid #222;
+  border-radius: 8px;
+  padding: 1.2em 2em;
+  margin: 1em 0 2em 0;
+  font-size: 1.4em;
+  color: #222;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+  position: relative;
+  transition: box-shadow 0.3s, background 0.3s;
+  border-bottom: 4px solid #222;
+}
+.advice-balloon:after {
+  display: none;
+}

@@ -5,6 +5,8 @@ import mediapipe as mp
 import numpy as np
 import threading
 import random
+import serial
+import json
 
 app = Flask(__name__)
 CORS(app)
@@ -17,10 +19,47 @@ angle_data = {
     'left_shoulder': None,
     'shoulder_diff': None,
     'shoulder_warning': False,
-    'elbow_warning': False
+    'elbow_warning': False,
+    'accel': None
 }
 
 angle_data_lock = threading.Lock()
+# MPU加速度専用スレッド
+def read_mpu_thread():
+    global mpu_data
+    import time
+    while True:
+        if ser.in_waiting > 0:
+            line = ser.readline().decode('utf-8', errors='ignore').strip()
+            #print("MPU受信:", line)  # デバッグ用
+            try:
+                mpu_data = json.loads(line)
+            except:
+                continue
+            with angle_data_lock:
+                if all(k in mpu_data for k in ['ax', 'ay', 'az']):
+                    try:
+                        a = (mpu_data['ax']**2 + mpu_data['ay']**2 + mpu_data['az']**2) ** 0.5
+                        angle_data['accel'] = round(a, 2)
+                    except Exception:
+                        angle_data['accel'] = None
+                else:
+                    angle_data['accel'] = None
+        time.sleep(0.1)
+
+# Arduino のシリアルポートを指定
+ser = serial.Serial('COM3', 115200, timeout=1)
+mpu_data = {}
+
+def read_mpu():
+    global mpu_data
+    if ser.in_waiting > 0:
+        line = ser.readline().decode('utf-8', errors='ignore').strip()
+        print("MPU受信:", line)  # デバッグ用
+        try:
+            mpu_data = json.loads(line)
+        except:
+            pass
 
 def calculate_angle(a, b, c):
     a = np.array(a)
@@ -34,7 +73,9 @@ def calculate_angle(a, b, c):
 
 def pose_thread():
     mp_pose = mp.solutions.pose
+    mp_face_mesh = mp.solutions.face_mesh
     pose = mp_pose.Pose()
+    face_mesh = mp_face_mesh.FaceMesh()
     cap = cv2.VideoCapture(0)
     while True:
         ret, frame = cap.read()
@@ -42,6 +83,58 @@ def pose_thread():
             continue
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = pose.process(rgb_frame)
+        face_results = face_mesh.process(rgb_frame)
+        # ...MPU値取得は専用スレッドで実施...
+        # 表情スコア計算
+        def get_smile_anger_score(face_landmarks):
+            # 使用するランドマーク
+            LEFT_BROW_END = 46
+            RIGHT_BROW_END = 276
+            LEFT_BROW_START = 75  # 眉頭をより内側（顔中心寄り）
+            RIGHT_BROW_START = 295
+            UPPER_LIP_CENTER = 13
+            LOWER_LIP_CENTER = 14
+            LEFT_MOUTH = 61
+            RIGHT_MOUTH = 291
+            NOSE = 1
+            BETWEEN_EYES = 168
+            try:
+                # 眉尻・眉頭・鼻・目と目の間
+                left_brow_end = face_landmarks.landmark[LEFT_BROW_END]
+                right_brow_end = face_landmarks.landmark[RIGHT_BROW_END]
+                left_brow_start = face_landmarks.landmark[LEFT_BROW_START]
+                right_brow_start = face_landmarks.landmark[RIGHT_BROW_START]
+                nose = face_landmarks.landmark[NOSE]
+                between_eyes = face_landmarks.landmark[BETWEEN_EYES]
+                # 唇中心・口角
+                upper_lip = face_landmarks.landmark[UPPER_LIP_CENTER]
+                lower_lip = face_landmarks.landmark[LOWER_LIP_CENTER]
+                left_mouth = face_landmarks.landmark[LEFT_MOUTH]
+                right_mouth = face_landmarks.landmark[RIGHT_MOUTH]
+                # 口の開き　0～0.03
+                mouth_open = abs(upper_lip.y - lower_lip.y)
+                mouth_open = max(0, min(mouth_open, 0.03))
+                #print(f"mouth_open: {mouth_open}", end="")
+
+                # 口端の高さ（口端が口中心より上なら＋）0～0.02
+                left_mouth_height = (upper_lip.y + lower_lip.y) / 2 - left_mouth.y
+                right_mouth_height = (upper_lip.y + lower_lip.y) / 2 - right_mouth.y
+                mouth_corner_up = (left_mouth_height + right_mouth_height) / 2
+                mouth_corner_up = max(0, min(mouth_corner_up, 0.02))
+                #print(f"mouth_corner_up: {mouth_corner_up}", end="")
+                # スコア計算（顔の近さバイアスなし）両値とも0.3,0.7に近づける
+                smile_score = (mouth_open * 15 + mouth_corner_up * 50) * 100
+                smile_score = max(0, min(smile_score, 100))
+                # 怒り度判定は廃止
+                return smile_score, None
+            except Exception:
+                return None, None
+        smile_score, _ = None, None
+        if face_results.multi_face_landmarks:
+            smile_score, _ = get_smile_anger_score(face_results.multi_face_landmarks[0])
+        with angle_data_lock:
+            angle_data['smile_score'] = smile_score
+            #print(f"smile_score: {smile_score}")
         # カメラ映像を別ウィンドウで表示
         if results.pose_landmarks:
             landmarks = results.pose_landmarks.landmark
@@ -140,7 +233,51 @@ def pose_thread():
                 angle_data['shoulder_warning'] = angle_data['shoulder_diff'] > 500
                 angle_data['elbow_warning'] = (angle_data['right_shoulder'] > 80 or angle_data['left_shoulder'] > 80)
                 #print(f"angle_data: {angle_data}")
+        # 顔ランドマークの主要点をプロット（眉尻はより外側: 左52, 右282／眉頭はそのまま: 左65, 右295）
+        if face_results.multi_face_landmarks:
+            face_landmarks = face_results.multi_face_landmarks[0]
+            h, w = frame.shape[:2]
+            # 眉尻（左: 46, 右: 276）赤
+            for idx in [46, 276]:
+                x = int(face_landmarks.landmark[idx].x * w)
+                y = int(face_landmarks.landmark[idx].y * h)
+                cv2.circle(frame, (x, y), 5, (0, 0, 255), -1)
+            # 眉頭（左: 107, 右: 336）ピンク（より上側に修正）
+            for idx in [107, 336]:
+                x = int(face_landmarks.landmark[idx].x * w)
+                y = int(face_landmarks.landmark[idx].y * h)
+                cv2.circle(frame, (x, y), 5, (255, 0, 255), -1)
+            # 上唇中心（13）青
+            x = int(face_landmarks.landmark[13].x * w)
+            y = int(face_landmarks.landmark[13].y * h)
+            cv2.circle(frame, (x, y), 5, (255, 0, 0), -1)
+            # 下唇中心（14）水色
+            x = int(face_landmarks.landmark[14].x * w)
+            y = int(face_landmarks.landmark[14].y * h)
+            cv2.circle(frame, (x, y), 5, (0, 255, 255), -1)
+            # 唇右（右口角: 291）緑
+            x = int(face_landmarks.landmark[291].x * w)
+            y = int(face_landmarks.landmark[291].y * h)
+            cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
+            # 唇左（左口角: 61）黄
+            x = int(face_landmarks.landmark[61].x * w)
+            y = int(face_landmarks.landmark[61].y * h)
+            cv2.circle(frame, (x, y), 5, (255, 255, 0), -1)
+            # 鼻（1）オレンジ
+            x = int(face_landmarks.landmark[1].x * w)
+            y = int(face_landmarks.landmark[1].y * h)
+            cv2.circle(frame, (x, y), 5, (0, 128, 255), -1)
+            # 目頭（左: 133, 右: 362）青紫
+            for idx in [133, 362]:
+                x = int(face_landmarks.landmark[idx].x * w)
+                y = int(face_landmarks.landmark[idx].y * h)
+                cv2.circle(frame, (x, y), 5, (128, 0, 255), -1)
+            # 目と目の間（168）紫
+            x = int(face_landmarks.landmark[168].x * w)
+            y = int(face_landmarks.landmark[168].y * h)
+            cv2.circle(frame, (x, y), 5, (128, 0, 128), -1)
         cv2.imshow("Camera View", frame)
+        # ...顔ランドマークの主要点プロットは上記で実施済み...
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     cap.release()
@@ -166,6 +303,13 @@ def angle():
 
 @app.route('/summary')
 def summary():
+    left = angle_data['left_shoulder']
+    right = angle_data['right_shoulder']
+    left_elbow = angle_data['left_elbow']
+    right_elbow = angle_data['right_elbow']
+    # Noneチェック
+    if None in [left, right, left_elbow, right_elbow]:
+        return jsonify({'explosion_probability': None})
     #カメラからの情報結果
     angleresult = 0
     #肩の上げ具合
@@ -174,11 +318,19 @@ def summary():
     #左右差の割合
     angleresult = ((angleresult)+((angle_data['left_shoulder']-angle_data['right_shoulder'])**2/(80**2)*100)+((angle_data['left_elbow']-angle_data['right_elbow'])**2/(80**2)*100))
     angleresult = min(angleresult, 99.99)
-    #すべての要素の平均値を計算
-    probability = (angleresult + 0)/1
+    #すべての要素の平均値を計算（肩・肘・笑顔度）
+    with angle_data_lock:
+        smile_score = angle_data.get('smile_score')
+    values = [angleresult]
+    if smile_score is not None:
+        smile_inverse = 100 - smile_score
+        values.append(smile_inverse)
+    probability = sum(values) / len(values)
     return jsonify({'explosion_probability': probability})
 
 if __name__ == '__main__':
-    t = threading.Thread(target=pose_thread, daemon=True)
-    t.start()
+    t_pose = threading.Thread(target=pose_thread, daemon=True)
+    t_pose.start()
+    t_mpu = threading.Thread(target=read_mpu_thread, daemon=True)
+    t_mpu.start()
     app.run(host='0.0.0.0', port=5000, debug=False)
