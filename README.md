@@ -50,7 +50,37 @@ cp .env.example .env
 
 ### 3. 起動方法
 
-#### 方法A: ローカル実行
+#### 方法A: ローカル実行（カメラ映像 + 姿勢推定表示）
+
+> ⚠️ **重要**: MediaPipeはWindowsで日本語（非ASCII）パスを処理できません。  
+> プロジェクトを **英語のみのパス** （例: `C:\pose_app`）に配置してください。
+
+**セットアップ:**
+```powershell
+# 1. 英語のみのパスにディレクトリを作成
+New-Item -ItemType Directory -Path "C:\pose_app" -Force
+
+# 2. 必要なファイルをコピー
+Copy-Item server.py, .env, requirements.txt -Destination "C:\pose_app\"
+Copy-Item -Recurse backend -Destination "C:\pose_app\"
+
+# 3. Python 3.11で仮想環境を作成
+py -3.11 -m venv "C:\pose_app\.venv"
+
+# 4. 依存パッケージをインストール
+& "C:\pose_app\.venv\Scripts\python.exe" -m pip install -r "C:\pose_app\requirements.txt"
+```
+
+**実行:**
+```powershell
+Set-Location "C:\pose_app"
+& "C:\pose_app\.venv\Scripts\python.exe" server.py
+```
+
+カメラ映像ウィンドウ「Camera View」が表示され、姿勢のランドマークがプロットされます。  
+終了するには `q` キーを押してください。
+
+#### 方法B: Docker実行（シミュレーションモード）
 
 **バックエンド:**
 ```bash
@@ -66,10 +96,12 @@ npm install
 npm run dev               # 開発サーバー (port 5173)
 ```
 
-#### 方法B: Docker Compose
+#### 方法C: Docker Compose（GUI無し・API提供のみ）
 ```bash
 docker-compose up --build
 ```
+
+> Docker内ではカメラ映像ウィンドウは表示されません（シミュレーションモードで動作）。
 
 ### 4. アクセス
 ブラウザで `http://localhost:5173` を開く

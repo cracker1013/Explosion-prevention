@@ -115,19 +115,65 @@ def pose_thread():
     try:
         mp_pose = mp.solutions.pose
         mp_face_mesh = mp.solutions.face_mesh
-        pose = mp_pose.Pose()
-        face_mesh = mp_face_mesh.FaceMesh()
-    except AttributeError as e:
+        pose = mp_pose.Pose(
+            static_image_mode=False,
+            model_complexity=1,
+            smooth_landmarks=True,
+            enable_segmentation=False,
+            smooth_segmentation=True,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+        face_mesh = mp_face_mesh.FaceMesh(
+            static_image_mode=False,
+            max_num_faces=1,
+            refine_landmarks=False,
+            min_detection_confidence=0.5,
+            min_tracking_confidence=0.5
+        )
+    except (AttributeError, FileNotFoundError) as e:
         print(f"MediaPipe initialization error: {e}")
-        print("Falling back to SIMULATION MODE")
+        print("Falling back to CAMERA-ONLY MODE (showing camera without pose detection)")
+        # MediaPipeなしでカメラ映像のみ表示
+        cap = cv2.VideoCapture(CAMERA_INDEX)
+        if not cap.isOpened():
+            print(f"Warning: Could not open camera {CAMERA_INDEX}. Falling back to SIMULATION MODE")
+            while True:
+                with angle_data_lock:
+                    angle_data['right_elbow'] = round(random.uniform(80, 150), 2)
+                    angle_data['right_shoulder'] = round(random.uniform(20, 80), 2)
+                    angle_data['left_elbow'] = round(random.uniform(80, 150), 2)
+                    angle_data['left_shoulder'] = round(random.uniform(20, 80), 2)
+                    angle_data['smile_score'] = round(random.uniform(30, 90), 2)
+                time.sleep(0.5)
+            return
+        
+        print("Camera opened successfully - displaying camera feed...")
         while True:
+            ret, frame = cap.read()
+            if not ret:
+                continue
+            
+            # カメラ映像のみ表示（姿勢検出なし）
+            cv2.putText(frame, "Camera Only Mode - No Pose Detection", (10, 30),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(frame, "MediaPipe not available", (10, 60),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+            cv2.imshow("Camera View", frame)
+            
+            # ランダムデータを生成（シミュレーション）
             with angle_data_lock:
                 angle_data['right_elbow'] = round(random.uniform(80, 150), 2)
                 angle_data['right_shoulder'] = round(random.uniform(20, 80), 2)
                 angle_data['left_elbow'] = round(random.uniform(80, 150), 2)
                 angle_data['left_shoulder'] = round(random.uniform(20, 80), 2)
                 angle_data['smile_score'] = round(random.uniform(30, 90), 2)
-            time.sleep(0.5)
+            
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+        
+        cap.release()
+        cv2.destroyAllWindows()
         return
     
     cap = cv2.VideoCapture(CAMERA_INDEX)
